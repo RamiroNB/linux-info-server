@@ -16,7 +16,7 @@
 #define MAX_PROCESSES 100
 #define PROCESSES_PER_PAGE 10
 
-// fix cpu_usadge, get_usb_info
+// get_usb_info, get_disks
 void die(char *s)
 {
 	perror(s);
