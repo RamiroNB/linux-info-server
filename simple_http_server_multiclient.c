@@ -12,7 +12,7 @@
 #include <fcntl.h>
 
 #define BUFLEN 8192
-#define PORT 7000
+#define PORT 8000
 #define MAX_PROCESSES 100
 #define PROCESSES_PER_PAGE 10
 
@@ -49,7 +49,7 @@ void get_current_datetime(char *buffer, size_t buf_size)
 	}
 	else
 	{
-		strncat(buffer, "<h2>Current Date and Time: N/A</h2>", buf_size - strlen(buffer) - 1);
+		strncat(buffer, "<h3>Current Date and Time: N/A</h3>", buf_size - strlen(buffer) - 1);
 	}
 }
 void get_uptime(char *buffer, size_t len)
@@ -57,13 +57,15 @@ void get_uptime(char *buffer, size_t len)
 	FILE *fp = fopen("/proc/uptime", "r");
 	if (fp == NULL)
 	{
-		snprintf(buffer, len, "N/A");
+		strncat(buffer, "N/A", len - strlen(buffer) - 1);
 	}
 	else
 	{
 		double uptime;
 		fscanf(fp, "%lf", &uptime);
-		snprintf(buffer, len, "<html><head><title>System Information</title></head><body><h1>System Information<h1><h2>Uptime: %.2f seconds</h2>", uptime);
+		char temp[256];
+		snprintf(temp, sizeof(temp), "<h3>Uptime: %.2f seconds</h3>", uptime);
+		strncat(buffer, temp, len - strlen(buffer) - 1);
 		fclose(fp);
 	}
 }
@@ -92,30 +94,82 @@ void get_processor_info(char *buffer, size_t buf_size)
 	{
 		strncat(buffer, "<h3>Processor: N/A</h3>", buf_size - strlen(buffer) - 1);
 	}
+}
+void get_processor_usage(char *buffer, size_t buf_size)
+{
+	FILE *fp;
+	char line[256];
+	unsigned long long int user, nice, system, idle, iowait, irq, softirq, steal;
+	unsigned long long int total, total_idle;
+	unsigned long long int prev_total = 0, prev_total_idle = 0;
+	double usage;
 
-	// cpu usage
-	FILE *fp1 = fopen("/proc/stat", "r"); // fix
+	// Open /proc/stat file
+	fp = fopen("/proc/stat", "r");
+	if (fp == NULL)
+	{
+		strncat(buffer, "Error opening /proc/stat", buf_size - strlen(buffer) - 1);
+		return;
+	}
 
-	if (fp1)
+	// Read the first line (aggregate CPU usage)
+	if (fgets(line, sizeof(line), fp) == NULL)
 	{
-		char line[256];
-		long user = 0, nice = 0, system = 0, idle = 0;
-		while (fgets(line, sizeof(line), fp1))
-		{
-			if (sscanf(line, "cpu %ld %ld %ld %ld", &user, &nice, &system, &idle) == 4)
-			{
-				break;
-			}
-		}
-		long total = user + nice + system + idle;
-		long cpu_usage = 100 * (total - idle) / total;
-		snprintf(buffer + strlen(buffer), buf_size - strlen(buffer), "<h3>CPU Usage: %ld%%</h3>", cpu_usage);
-		fclose(fp1);
+		strncat(buffer, "Error reading /proc/stat", buf_size - strlen(buffer) - 1);
+		fclose(fp);
+		return;
 	}
-	else
+
+	// Parse the first line
+	sscanf(line, "cpu  %llu %llu %llu %llu %llu %llu %llu %llu",
+		   &user, &nice, &system, &idle, &iowait, &irq, &softirq, &steal);
+
+	// Calculate total and total_idle
+	total = user + nice + system + idle + iowait + irq + softirq + steal;
+	total_idle = idle + iowait;
+
+	// Close the file
+	fclose(fp);
+
+	// Sleep for a short period to get a second reading
+	usleep(100000); // 100 milliseconds
+
+	// Open /proc/stat file again
+	fp = fopen("/proc/stat", "r");
+	if (fp == NULL)
 	{
-		snprintf(buffer + strlen(buffer), buf_size - strlen(buffer), "<h3>CPU Usage: N/A</h3>");
+		strncat(buffer, "Error opening /proc/stat", buf_size - strlen(buffer) - 1);
+		return;
 	}
+
+	// Read the first line (aggregate CPU usage)
+	if (fgets(line, sizeof(line), fp) == NULL)
+	{
+		strncat(buffer, "Error reading /proc/stat", buf_size - strlen(buffer) - 1);
+		fclose(fp);
+		return;
+	}
+
+	// Parse the first line
+	sscanf(line, "cpu  %llu %llu %llu %llu %llu %llu %llu %llu",
+		   &user, &nice, &system, &idle, &iowait, &irq, &softirq, &steal);
+
+	// Calculate total and total_idle
+	prev_total = total;
+	prev_total_idle = total_idle;
+	total = user + nice + system + idle + iowait + irq + softirq + steal;
+	total_idle = idle + iowait;
+
+	// Close the file
+	fclose(fp);
+
+	// Calculate CPU usage percentage
+	usage = (1.0 - (double)(total_idle - prev_total_idle) / (total - prev_total)) * 100.0;
+
+	// Append the result to the buffer
+	char temp[256];
+	snprintf(temp, sizeof(temp), "<h2>CPU Usage: %.2f%%</h2>", usage);
+	strncat(buffer, temp, buf_size - strlen(buffer) - 1);
 }
 
 void get_memory_usage(char *buffer, size_t buf_size)
@@ -265,6 +319,33 @@ void get_disks(char *buffer, size_t buf_size)
 
 void get_usb_devices(char *buffer, size_t buf_size)
 {
+	// read only usb devices and the port they are connected to
+	// read from /proc/bus/input/devices
+	FILE *fp = fopen("/proc/bus/input/devices", "r");
+	if (fp)
+	{
+		char line[256];
+		strncat(buffer, "<h3>USB Devices</h3><ul>", buf_size - strlen(buffer) - 1);
+		while (fgets(line, sizeof(line), fp))
+		{
+			if (strstr(line, "Handlers=kbd"))
+			{
+				char *usb_device = strstr(line, "Product=");
+				if (usb_device)
+				{
+					strncat(buffer, "<li>", buf_size - strlen(buffer) - 1);
+					strncat(buffer, usb_device, buf_size - strlen(buffer) - 1);
+					strncat(buffer, "</li>", buf_size - strlen(buffer) - 1);
+				}
+			}
+		}
+		strncat(buffer, "</ul><br>", buf_size - strlen(buffer) - 1);
+		fclose(fp);
+	}
+	else
+	{
+		strncat(buffer, "<h3>USB Devices: N/A</h3>", buf_size - strlen(buffer) - 1);
+	}
 }
 
 void get_network_adapters(char *buffer, size_t buf_size)
@@ -310,7 +391,7 @@ int main(void)
 	int s, conn, slen = sizeof(si_other), recv_len;
 	char buf[BUFLEN];
 	char http_ok[] = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n";
-	char page[BUFLEN * 2]; // Increase buffer size for larger pages
+	char page[BUFLEN * 10]; // Increase buffer size for larger pages
 
 	// Create a TCP socket
 	if ((s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1)
@@ -338,14 +419,21 @@ int main(void)
 
 		conn = accept(s, (struct sockaddr *)&si_other, &slen);
 		if (conn < 0)
-			die("accept");
+		{
+			perror("accept");
+			continue;
+		}
 
 		printf("Client connected: %s:%d\n", inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
 
 		memset(buf, 0, sizeof(buf));
 		recv_len = read(conn, buf, BUFLEN);
 		if (recv_len < 0)
-			die("read");
+		{
+			perror("read");
+			close(conn);
+			continue;
+		}
 
 		printf("Received request:\n%s\n", buf);
 
@@ -360,24 +448,36 @@ int main(void)
 		// Clear the page buffer
 		memset(page, 0, sizeof(page));
 
+		// Add HTML header
+		strncat(page, "<html><head><title>System Information</title></head><body><h1>System Information</h1>", sizeof(page) - strlen(page) - 1);
+
 		get_uptime(page, sizeof(page));
 		get_current_datetime(page, sizeof(page));
+		get_processor_usage(page, sizeof(page));
 		get_processor_info(page, sizeof(page));
 		get_memory_usage(page, sizeof(page));
 		get_kernel_version(page, sizeof(page));
 		get_processes(page, sizeof(page), page_number);
 		get_disks(page, sizeof(page));
-		// get_usb_devices(page, sizeof(page));
+		get_usb_devices(page, sizeof(page));
 		get_network_adapters(page, sizeof(page));
 		strncat(page, "</body></html>", sizeof(page) - strlen(page) - 1);
 
 		printf("Sending response:\n%s\n", page);
 
 		if (write(conn, http_ok, strlen(http_ok)) < 0)
-			die("write");
+		{
+			perror("write");
+			close(conn);
+			continue;
+		}
 
 		if (write(conn, page, strlen(page)) < 0)
-			die("write");
+		{
+			perror("write");
+			close(conn);
+			continue;
+		}
 
 		close(conn);
 	}
