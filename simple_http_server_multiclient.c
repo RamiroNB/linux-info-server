@@ -12,7 +12,7 @@
 #include <fcntl.h>
 
 #define BUFLEN 8192
-#define PORT 5000
+#define PORT 7000
 #define MAX_PROCESSES 100
 #define PROCESSES_PER_PAGE 10
 
@@ -25,25 +25,34 @@ void die(char *s)
 
 void get_current_datetime(char *buffer, size_t buf_size)
 {
-	// read from /proc/datetime
-	FILE *fp = fopen("/proc/datetime", "r");
+	// with year date and time
+	// read from /proc/driver/rtc
+	FILE *fp = fopen("/proc/driver/rtc", "r");
 	if (fp)
 	{
 		char line[256];
-		if (fgets(line, sizeof(line), fp))
+		while (fgets(line, sizeof(line), fp))
 		{
-			strncat(buffer, "<h3>Current Date/Time: ", buf_size - strlen(buffer) - 1);
-			strncat(buffer, line, buf_size - strlen(buffer) - 1);
-			strncat(buffer, "</h3>", buf_size - strlen(buffer) - 1);
+			if (strstr(line, "rtc_time"))
+			{
+				strncat(buffer, "<h2>Current Date and Time: ", buf_size - strlen(buffer) - 1);
+				strncat(buffer, strchr(line, ':') + 2, buf_size - strlen(buffer) - 1);
+				strncat(buffer, " ", buf_size - strlen(buffer) - 1);
+			}
+			if (strstr(line, "rtc_date"))
+			{
+				strncat(buffer, strchr(line, ':') + 2, buf_size - strlen(buffer) - 1);
+				strncat(buffer, "</h2>", buf_size - strlen(buffer) - 1);
+				break;
+			}
 		}
 		fclose(fp);
 	}
 	else
 	{
-		strncat(buffer, "<h3>Current Date/Time: N/A</h3>", buf_size - strlen(buffer) - 1);
+		strncat(buffer, "<h2>Current Date and Time: N/A</h2>", buf_size - strlen(buffer) - 1);
 	}
 }
-
 void get_uptime(char *buffer, size_t len)
 {
 	FILE *fp = fopen("/proc/uptime", "r");
@@ -55,7 +64,7 @@ void get_uptime(char *buffer, size_t len)
 	{
 		double uptime;
 		fscanf(fp, "%lf", &uptime);
-		snprintf(buffer, len, "<h3>Uptime: %.2f seconds</h3>", uptime);
+		snprintf(buffer, len, "<html><head><title>System Information</title></head><body><h1>System Information<h1><h2>Uptime: %.2f seconds</h2>", uptime);
 		fclose(fp);
 	}
 }
@@ -86,7 +95,7 @@ void get_processor_info(char *buffer, size_t buf_size)
 	}
 
 	// cpu usage
-	FILE *fp1 = fopen("/proc/stat", "r");
+	FILE *fp1 = fopen("/proc/stat", "r"); // fix
 
 	if (fp1)
 	{
@@ -215,7 +224,7 @@ void get_processes(char *buffer, size_t buf_size, int page)
 	snprintf(buffer + strlen(buffer), buf_size - strlen(buffer) - 1, "</p>");
 }
 
-void get_disks(char *buffer, size_t buf_size)
+void get_disks(char *buffer, size_t buf_size) // fix
 {
 	// read from /proc/partitions
 	FILE *fp = fopen("/proc/partitions", "r");
@@ -224,23 +233,26 @@ void get_disks(char *buffer, size_t buf_size)
 		char line[256];
 		while (fgets(line, sizeof(line), fp))
 		{
-			if (strstr(line, "sd"))
+			if (strchr(line, 's'))
 			{
-				strncat(buffer, "<h3>Disks</h3><ul>", buf_size - strlen(buffer) - 1);
-				strncat(buffer, "<li>", buf_size - strlen(buffer) - 1);
-				strncat(buffer, line, buf_size - strlen(buffer) - 1);
-				strncat(buffer, "</li>", buf_size - strlen(buffer) - 1);
+				char *disk = strtok(line, " ");
+				if (disk)
+				{
+					strncat(buffer, "<h3>Disk: ", buf_size - strlen(buffer) - 1);
+					strncat(buffer, disk, buf_size - strlen(buffer) - 1);
+					strncat(buffer, "</h3>", buf_size - strlen(buffer) - 1);
+				}
 			}
 		}
 		fclose(fp);
 	}
 	else
 	{
-		strncat(buffer, "<h3>Disks: N/A</h3>", buf_size - strlen(buffer) - 1);
+		strncat(buffer, "<h3>Disk: N/A</h3>", buf_size - strlen(buffer) - 1);
 	}
 }
 
-void get_usb_info(char *buffer, size_t buf_size)
+void get_usb_info(char *buffer, size_t buf_size) // fix
 {
 	// read from /proc/bus/usb/devices
 	FILE *fp = fopen("/proc/bus/usb/devices", "r");
@@ -251,43 +263,54 @@ void get_usb_info(char *buffer, size_t buf_size)
 		{
 			if (strstr(line, "Product="))
 			{
-				strncat(buffer, "<h3>USB Devices</h3><ul>", buf_size - strlen(buffer) - 1);
-				strncat(buffer, "<li>", buf_size - strlen(buffer) - 1);
-				strncat(buffer, line, buf_size - strlen(buffer) - 1);
-				strncat(buffer, "</li>", buf_size - strlen(buffer) - 1);
+				strncat(buffer, "<h3>USB Device: ", buf_size - strlen(buffer) - 1);
+				strncat(buffer, strchr(line, '=') + 1, buf_size - strlen(buffer) - 1);
+				strncat(buffer, "</h3>", buf_size - strlen(buffer) - 1);
 			}
 		}
 		fclose(fp);
 	}
 	else
 	{
-		strncat(buffer, "<h3>USB Devices: N/A</h3>", buf_size - strlen(buffer) - 1);
+		strncat(buffer, "<h3>USB Device: N/A</h3>", buf_size - strlen(buffer) - 1);
 	}
 }
 
 void get_network_adapters(char *buffer, size_t buf_size)
 {
-	// read from /proc/net/dev
+	strncat(buffer, "<h3>Network Adapters</h3><ul>", buf_size - strlen(buffer) - 1);
+
 	FILE *fp = fopen("/proc/net/dev", "r");
 	if (fp)
 	{
 		char line[256];
 		while (fgets(line, sizeof(line), fp))
 		{
-			if (strstr(line, ":"))
+			if (strchr(line, ':'))
 			{
-				strncat(buffer, "<h3>Network Adapters</h3><ul>", buf_size - strlen(buffer) - 1);
-				strncat(buffer, "<li>", buf_size - strlen(buffer) - 1);
-				strncat(buffer, line, buf_size - strlen(buffer) - 1);
-				strncat(buffer, "</li>", buf_size - strlen(buffer) - 1);
+				char *iface = strtok(line, ":");
+				if (iface)
+				{
+					strncat(buffer, "<li>", buf_size - strlen(buffer) - 1);
+					strncat(buffer, iface, buf_size - strlen(buffer) - 1);
+					strncat(buffer, " - IP: ", buf_size - strlen(buffer) - 1);
+					char ip[64];
+					snprintf(ip, sizeof(ip), "ip -o -4 addr show %s | awk '{print $4}'", iface);
+					FILE *ip_fp = popen(ip, "r");
+					char ip_addr[32];
+					if (fgets(ip_addr, sizeof(ip_addr), ip_fp))
+					{
+						strncat(buffer, ip_addr, buf_size - strlen(buffer) - 1);
+					}
+					pclose(ip_fp);
+					strncat(buffer, "</li>", buf_size - strlen(buffer) - 1);
+				}
 			}
 		}
 		fclose(fp);
 	}
-	else
-	{
-		strncat(buffer, "<h3>Network Adapters: N/A</h3>", buf_size - strlen(buffer) - 1);
-	}
+
+	strncat(buffer, "</ul><br>", buf_size - strlen(buffer) - 1);
 }
 
 int main(void)
@@ -347,10 +370,11 @@ int main(void)
 		memset(page, 0, sizeof(page));
 
 		// Generate the HTML page with system information
-		snprintf(page, sizeof(page), "<html><head><title>System Information</title></head><body>");
-		strncat(page, "<h1>System Information</h1>", sizeof(page) - strlen(page) - 1);
-		get_current_datetime(page, sizeof(page));
+		// snprintf(page, sizeof(page), "<html><head><title>System Information</title></head><body>");
+		// strncat(page, "<h1>System Information</h1>", sizeof(page) - strlen(page) - 1);
+
 		get_uptime(page, sizeof(page));
+		get_current_datetime(page, sizeof(page));
 		get_processor_info(page, sizeof(page));
 		get_memory_usage(page, sizeof(page));
 		get_kernel_version(page, sizeof(page));
