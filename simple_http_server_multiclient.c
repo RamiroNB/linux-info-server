@@ -16,7 +16,7 @@
 #define MAX_PROCESSES 100
 #define PROCESSES_PER_PAGE 10
 
-// fix uptmie, cpuinfo, kernal version
+// fix cpu_usadge, get_usb_info
 void die(char *s)
 {
 	perror(s);
@@ -25,7 +25,6 @@ void die(char *s)
 
 void get_current_datetime(char *buffer, size_t buf_size)
 {
-	// with year date and time
 	// read from /proc/driver/rtc
 	FILE *fp = fopen("/proc/driver/rtc", "r");
 	if (fp)
@@ -224,23 +223,35 @@ void get_processes(char *buffer, size_t buf_size, int page)
 	snprintf(buffer + strlen(buffer), buf_size - strlen(buffer) - 1, "</p>");
 }
 
-void get_disks(char *buffer, size_t buf_size) // fix
+void get_disks(char *buffer, size_t buf_size)
 {
 	// read from /proc/partitions
 	FILE *fp = fopen("/proc/partitions", "r");
 	if (fp)
 	{
 		char line[256];
+		// Skip the first two lines (header)
+		fgets(line, sizeof(line), fp);
+		fgets(line, sizeof(line), fp);
+		strncat(buffer, "<h3>Disks</h3>", buf_size - strlen(buffer) - 1);
 		while (fgets(line, sizeof(line), fp))
 		{
-			if (strchr(line, 's'))
+			unsigned long blocks;
+			char name[32];
+
+			// Parse the line to get the number of blocks and the disk name
+			if (sscanf(line, "%*d %*d %lu %31s", &blocks, name) == 2)
 			{
-				char *disk = strtok(line, " ");
-				if (disk)
+				// Only consider whole disks (e.g., sda, sdb) and not partitions (e.g., sda1, sda2)
+				if (strchr(name, '/') == NULL && strchr(name, 's') == name)
 				{
-					strncat(buffer, "<h3>Disk: ", buf_size - strlen(buffer) - 1);
-					strncat(buffer, disk, buf_size - strlen(buffer) - 1);
-					strncat(buffer, "</h3>", buf_size - strlen(buffer) - 1);
+					unsigned long size_in_bytes = blocks * 1024; // Assuming block size is 1024 bytes
+
+					char disk_info[256];
+
+					snprintf(disk_info, sizeof(disk_info), "<li>%s: %lu bytes</li>", name, size_in_bytes);
+
+					strncat(buffer, disk_info, buf_size - strlen(buffer) - 1);
 				}
 			}
 		}
@@ -248,32 +259,12 @@ void get_disks(char *buffer, size_t buf_size) // fix
 	}
 	else
 	{
-		strncat(buffer, "<h3>Disk: N/A</h3>", buf_size - strlen(buffer) - 1);
+		strncat(buffer, "<h3>Disks: N/A</h3>", buf_size - strlen(buffer) - 1);
 	}
 }
 
-void get_usb_info(char *buffer, size_t buf_size) // fix
+void get_usb_devices(char *buffer, size_t buf_size)
 {
-	// read from /proc/bus/usb/devices
-	FILE *fp = fopen("/proc/bus/usb/devices", "r");
-	if (fp)
-	{
-		char line[256];
-		while (fgets(line, sizeof(line), fp))
-		{
-			if (strstr(line, "Product="))
-			{
-				strncat(buffer, "<h3>USB Device: ", buf_size - strlen(buffer) - 1);
-				strncat(buffer, strchr(line, '=') + 1, buf_size - strlen(buffer) - 1);
-				strncat(buffer, "</h3>", buf_size - strlen(buffer) - 1);
-			}
-		}
-		fclose(fp);
-	}
-	else
-	{
-		strncat(buffer, "<h3>USB Device: N/A</h3>", buf_size - strlen(buffer) - 1);
-	}
 }
 
 void get_network_adapters(char *buffer, size_t buf_size)
@@ -369,10 +360,6 @@ int main(void)
 		// Clear the page buffer
 		memset(page, 0, sizeof(page));
 
-		// Generate the HTML page with system information
-		// snprintf(page, sizeof(page), "<html><head><title>System Information</title></head><body>");
-		// strncat(page, "<h1>System Information</h1>", sizeof(page) - strlen(page) - 1);
-
 		get_uptime(page, sizeof(page));
 		get_current_datetime(page, sizeof(page));
 		get_processor_info(page, sizeof(page));
@@ -380,7 +367,7 @@ int main(void)
 		get_kernel_version(page, sizeof(page));
 		get_processes(page, sizeof(page), page_number);
 		get_disks(page, sizeof(page));
-		get_usb_info(page, sizeof(page));
+		// get_usb_devices(page, sizeof(page));
 		get_network_adapters(page, sizeof(page));
 		strncat(page, "</body></html>", sizeof(page) - strlen(page) - 1);
 
