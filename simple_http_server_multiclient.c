@@ -319,33 +319,46 @@ void get_disks(char *buffer, size_t buf_size)
 
 void get_usb_devices(char *buffer, size_t buf_size)
 {
-	// read only usb devices and the port they are connected to
-	// read from /proc/bus/input/devices
-	FILE *fp = fopen("/proc/bus/input/devices", "r");
-	if (fp)
-	{
-		char line[256];
-		strncat(buffer, "<h3>USB Devices</h3><ul>", buf_size - strlen(buffer) - 1);
-		while (fgets(line, sizeof(line), fp))
-		{
-			if (strstr(line, "Handlers=kbd"))
-			{
-				char *usb_device = strstr(line, "Product=");
-				if (usb_device)
-				{
-					strncat(buffer, "<li>", buf_size - strlen(buffer) - 1);
-					strncat(buffer, usb_device, buf_size - strlen(buffer) - 1);
-					strncat(buffer, "</li>", buf_size - strlen(buffer) - 1);
-				}
-			}
-		}
-		strncat(buffer, "</ul><br>", buf_size - strlen(buffer) - 1);
-		fclose(fp);
-	}
-	else
-	{
-		strncat(buffer, "<h3>USB Devices: N/A</h3>", buf_size - strlen(buffer) - 1);
-	}
+    FILE *fp = fopen("/proc/bus/input/devices", "r");
+    if (fp)
+    {
+        char line[256];
+        int is_usb_device = 0;
+        char added_devices[1024] = ""; 
+        strncat(buffer, "<h3>USB Devices</h3><ul>", buf_size - strlen(buffer) - 1);
+
+        while (fgets(line, sizeof(line), fp))
+        {
+            if (strstr(line, "Bus=0003"))
+            {
+                is_usb_device = 1;
+            }
+
+            if (is_usb_device && strstr(line, "Name="))
+            {
+                char *usb_device = strstr(line, "Name=");
+                if (usb_device)
+                {
+                    if (!strstr(added_devices, usb_device))
+                    {
+                        strncat(buffer, "<li>", buf_size - strlen(buffer) - 1);
+                        strncat(buffer, usb_device + 5, buf_size - strlen(buffer) - 1); // Skip "Name="
+                        strncat(buffer, "</li>", buf_size - strlen(buffer) - 1);
+
+                        strncat(added_devices, usb_device, sizeof(added_devices) - strlen(added_devices) - 1);
+                    }
+                }
+                is_usb_device = 0;
+            }
+        }
+
+        strncat(buffer, "</ul><br>", buf_size - strlen(buffer) - 1);
+        fclose(fp);
+    }
+    else
+    {
+        strncat(buffer, "<h3>USB Devices: N/A</h3>", buf_size - strlen(buffer) - 1);
+    }
 }
 
 void get_network_adapters(char *buffer, size_t buf_size)
